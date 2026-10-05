@@ -53,7 +53,7 @@
 ## Stop the app
 
 ```sh
-Docker compose down
+docker compose down
 ```
 
 The PostgreSQL data is retained for the next startup.
