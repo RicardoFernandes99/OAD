@@ -1,7 +1,6 @@
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 import psycopg
 from flask import Flask, render_template, request
@@ -40,12 +39,12 @@ def snowflake_configured():
 
 
 def query_postgres():
-    started = time.perf_counter()
     with psycopg.connect(**postgres_config(), row_factory=dict_row) as conn:
+        started = time.perf_counter()
         with conn.cursor() as cur:
             cur.execute(QUERY.format(table="production_events"))
             rows = cur.fetchall()
-    elapsed_ms = (time.perf_counter() - started) * 1000
+        elapsed_ms = (time.perf_counter() - started) * 1000
     return {"engine": "PostgreSQL", "elapsed_ms": elapsed_ms, "rows": rows}
 
 
