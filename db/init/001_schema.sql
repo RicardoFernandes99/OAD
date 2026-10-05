@@ -33,4 +33,3 @@ CREATE TABLE ai4i_readings (
     osf SMALLINT NOT NULL,
     rnf SMALLINT NOT NULL
 );
-

@@ -16,4 +16,3 @@ SELECT product_type,
 FROM ai4i_readings
 GROUP BY product_type
 ORDER BY CASE product_type WHEN 'L' THEN 1 WHEN 'M' THEN 2 WHEN 'H' THEN 3 ELSE 4 END;
-

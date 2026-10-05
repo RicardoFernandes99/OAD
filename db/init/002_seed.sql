@@ -34,4 +34,3 @@ FROM GENERATE_SERIES(1, 500) AS repetitions(repetition_number)
 CROSS JOIN ai4i_source AS source;
 
 ANALYZE ai4i_readings;
-
