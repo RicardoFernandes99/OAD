@@ -1,34 +1,38 @@
 # OAD — PostgreSQL vs Snowflake
 
-An industrial analytics comparison app. A React dashboard runs the same weekly production and defect-rate aggregation against a local PostgreSQL container or Snowflake.
+Uma demo para comparar a execução da mesma análise industrial no PostgreSQL e no Snowflake. A interface tem três separadores: estado geral das ligações e dos dados, análise PostgreSQL e análise Snowflake.
 
-## Run locally
+## Executar localmente
 
-1. Copy `.env.example` to `.env`.
-2. Run `docker compose up --build`.
-3. Open <http://localhost:8000>.
+1. Copia `.env.example` para `.env`.
+2. Executa `docker compose up --build`.
+3. Abre <http://localhost:8000>.
 
-The first PostgreSQL start creates the schema and generates five million deterministic production readings. The React UI shows weekly production and defect-rate trends, engine status, query duration, and a paged result table. Snowflake can be left unconfigured while using PostgreSQL.
+O primeiro arranque importa o CSV para PostgreSQL e cria `ai4i_readings`, com cinco milhões de linhas. São os 10 000 registos AI4I originais repetidos 500 vezes sem alterar os valores. Esta expansão aumenta o volume para uma demonstração de escala, mas não cria novas observações independentes. A página Geral mostra a contagem efetiva em cada base de dados.
 
-## Add Snowflake
+## Ativar Snowflake
 
-1. Fill the `SNOWFLAKE_*` variables in `.env`.
-2. Run `snowflake/001_setup.sql` in a Snowflake worksheet. It creates the table and generates the same five million rows using the matching deterministic formula in `db/init/002_seed.sql`.
-3. Select Snowflake or both engines in the dashboard.
+1. Preenche as variáveis `SNOWFLAKE_*` em `.env`; usa um warehouse pequeno com auto-suspend.
+2. Executa `snowflake/001_setup.sql` numa worksheet. Cria a base, o schema e as tabelas de origem e destino.
+3. Em Snowsight, carrega `data/ai4i2020.csv` para `OAD_DEMO.PUBLIC.AI4I_SOURCE`, mantendo os cabeçalhos e associando as colunas pela ordem do CSV.
+4. Executa `snowflake/002_expand.sql`. Cria os cinco milhões de registos expandidos.
+5. Reinicia a app com `docker compose up --build -d` e abre o separador Snowflake.
 
-Use a small virtual warehouse and configure auto-suspend. Snowflake result caching is disabled for the demonstration query. The timer starts after connecting and includes query execution and result fetching. PostgreSQL and Snowflake run sequentially. This is a classroom demonstration, not a controlled benchmark: hardware, caching, warehouse size, network and concurrent work affect the results, and neither system is guaranteed to be faster.
+`SNOWFLAKE_TABLE` aponta por omissão para `AI4I_READINGS`. O benchmark desativa a cache de resultados do Snowflake. O cronómetro começa depois da ligação e mede execução e leitura dos resultados. As consultas decorrem uma de cada vez; os tempos dependem do hardware, cache, rede e warehouse e não garantem que uma plataforma seja sempre mais rápida.
 
-## Dataset and SQL
+## Fonte e atribuição
 
-- `db/init/001_schema.sql`: PostgreSQL schema migration.
-- `db/init/002_seed.sql`: generates five million readings at first database initialization.
-- `snowflake/001_setup.sql`: Snowflake schema, table and matching data generation.
-- `sql/benchmark.sql`: reference aggregation query.
+O CSV incluído é o [AI4I 2020 Predictive Maintenance Dataset](https://doi.org/10.24432/C5HS5C), do UCI Machine Learning Repository, licenciado sob CC BY 4.0. A UCI descreve-o como um conjunto sintético de 10 000 observações de sensores industriais com rótulos de falha. O dashboard compara a taxa de falhas por tipo de produto (L, M, H), condições médias de operação e contagem dos cinco modos de falha.
 
-The generated data covers four factory lines over roughly one year. Each line contributes a reading every 24 seconds. Event IDs drive the same timestamps, line assignment, production counts and defect-rate variation in each database; line 03 has a higher defect rate to make quality comparisons visible.
+## Ficheiros principais
 
-If you change the seed SQL or row count, recreate the local demo database volume so init scripts run again: `docker compose down -v`, then `docker compose up --build`. This deletes the local PostgreSQL demo data.
+- `data/ai4i2020.csv`: observações de origem, com atribuição UCI.
+- `db/init/001_schema.sql` e `002_seed.sql`: tabelas e importação/expansão PostgreSQL.
+- `snowflake/001_setup.sql` e `002_expand.sql`: tabelas Snowflake e expansão após upload do CSV.
+- `sql/benchmark.sql`: consulta analítica de referência.
+- `frontend/`: dashboard React, Vite, Recharts e componentes Radix/CVA.
 
-## Configuration
+Para recriar a base PostgreSQL desde o início: `docker compose down -v` e depois `docker compose up --build`. **Isto apaga o volume local de demonstração.**
 
-See `.env.example`. `.env` is ignored by Git. Never commit real credentials.
+`.env` é ignorado pelo Git. Nunca publiques credenciais reais.
+

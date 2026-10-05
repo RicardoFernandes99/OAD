@@ -18,8 +18,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_ai4i:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./data/ai4i2020.csv:/tmp/ai4i2020.csv:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -27,4 +28,5 @@ services:
       retries: 20
 
 volumes:
-  postgres_data:
+  postgres_data_ai4i:
+

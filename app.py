@@ -1,7 +1,6 @@
 import os
 import re
 import time
-from datetime import date, datetime
 from decimal import Decimal
 
 import psycopg
@@ -12,14 +11,24 @@ app = Flask(__name__, static_folder="dist/assets", static_url_path="/assets")
 DATASET_ROWS = 5_000_000
 
 QUERY = """
-SELECT DATE_TRUNC('WEEK', event_ts) AS week_start,
-       line_id,
-       SUM(units_produced) AS units_produced,
-       SUM(units_defective) AS units_defective,
-       100.0 * SUM(units_defective) / NULLIF(SUM(units_produced), 0) AS defect_rate_pct
+SELECT product_type,
+       COUNT(*) AS record_count,
+       SUM(machine_failure) AS machine_failures,
+       ROUND(100.0 * SUM(machine_failure) / NULLIF(COUNT(*), 0), 3) AS failure_rate_pct,
+       ROUND(AVG(air_temperature_k)::NUMERIC, 2) AS avg_air_temperature_k,
+       ROUND(AVG(process_temperature_k)::NUMERIC, 2) AS avg_process_temperature_k,
+       ROUND(AVG(rotational_speed_rpm)::NUMERIC, 1) AS avg_rotational_speed_rpm,
+       ROUND(AVG(torque_nm)::NUMERIC, 2) AS avg_torque_nm,
+       ROUND(AVG(tool_wear_min)::NUMERIC, 1) AS avg_tool_wear_min,
+       ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY tool_wear_min)::NUMERIC, 1) AS p95_tool_wear_min,
+       SUM(twf) AS twf_failures,
+       SUM(hdf) AS hdf_failures,
+       SUM(pwf) AS pwf_failures,
+       SUM(osf) AS osf_failures,
+       SUM(rnf) AS rnf_failures
 FROM {table}
-GROUP BY 1, 2
-ORDER BY 1, 2
+GROUP BY product_type
+ORDER BY CASE product_type WHEN 'L' THEN 1 WHEN 'M' THEN 2 WHEN 'H' THEN 3 ELSE 4 END
 """
 
 
@@ -41,38 +50,7 @@ def snowflake_configured():
     ))
 
 
-def serialize_value(value):
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return float(value)
-    return value
-
-
-def query_postgres():
-    with psycopg.connect(**postgres_config(), row_factory=dict_row) as conn:
-        started = time.perf_counter()
-        with conn.cursor() as cur:
-            cur.execute(QUERY.format(table="production_events"))
-            rows = cur.fetchall()
-        elapsed_ms = (time.perf_counter() - started) * 1000
-    return {
-        "engine": "PostgreSQL",
-        "elapsed_ms": elapsed_ms,
-        "rows_scanned": DATASET_ROWS,
-        "rows": [{key: serialize_value(value) for key, value in row.items()} for row in rows],
-    }
-
-
-def query_snowflake():
-    if not snowflake_configured():
-        raise RuntimeError("Snowflake ainda não está configurado. Preenche as variáveis SNOWFLAKE_* no ficheiro .env e reinicia a app.")
-    table = os.getenv("SNOWFLAKE_TABLE", "PRODUCTION_EVENTS")
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", table):
-        raise RuntimeError("SNOWFLAKE_TABLE deve ser um identificador simples, por exemplo PRODUCTION_EVENTS.")
-
-    import snowflake.connector
-
+def snowflake_connection_config():
     config = {
         "account": os.environ["SNOWFLAKE_ACCOUNT"],
         "user": os.environ["SNOWFLAKE_USER"],
@@ -84,8 +62,40 @@ def query_snowflake():
     }
     if os.getenv("SNOWFLAKE_ROLE"):
         config["role"] = os.environ["SNOWFLAKE_ROLE"]
+    return config
 
-    with snowflake.connector.connect(**config) as conn:
+
+def serialize_value(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def query_postgres():
+    with psycopg.connect(**postgres_config(), row_factory=dict_row) as conn:
+        started = time.perf_counter()
+        with conn.cursor() as cur:
+            cur.execute(QUERY.format(table="ai4i_readings"))
+            rows = cur.fetchall()
+        elapsed_ms = (time.perf_counter() - started) * 1000
+    return {
+        "engine": "PostgreSQL",
+        "elapsed_ms": elapsed_ms,
+        "rows_scanned": sum(int(row["record_count"]) for row in rows),
+        "rows": [{key: serialize_value(value) for key, value in row.items()} for row in rows],
+    }
+
+
+def query_snowflake():
+    if not snowflake_configured():
+        raise RuntimeError("Snowflake ainda não está configurado. Preenche as variáveis SNOWFLAKE_* no ficheiro .env e reinicia a app.")
+    table = os.getenv("SNOWFLAKE_TABLE", "AI4I_READINGS")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", table):
+        raise RuntimeError("SNOWFLAKE_TABLE deve ser um identificador simples, por exemplo AI4I_READINGS.")
+
+    import snowflake.connector
+
+    with snowflake.connector.connect(**snowflake_connection_config()) as conn:
         started = time.perf_counter()
         cur = conn.cursor()
         try:
@@ -98,7 +108,7 @@ def query_snowflake():
     return {
         "engine": "Snowflake",
         "elapsed_ms": elapsed_ms,
-        "rows_scanned": DATASET_ROWS,
+        "rows_scanned": sum(int(row["record_count"]) for row in rows),
         "rows": [{key: serialize_value(value) for key, value in row.items()} for row in rows],
     }
 
@@ -119,17 +129,36 @@ def status():
         config["connect_timeout"] = 3
         with psycopg.connect(**config) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-        postgres_rows = DATASET_ROWS
+                cur.execute("SELECT COUNT(*) FROM ai4i_readings")
+                postgres_rows = cur.fetchone()[0]
         postgres_status = "online"
     except Exception:
         postgres_rows = 0
         postgres_status = "offline"
+    snowflake_rows = None
+    snowflake_status = "setup_required"
+    if snowflake_configured():
+        table = os.getenv("SNOWFLAKE_TABLE", "AI4I_READINGS")
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", table):
+            try:
+                import snowflake.connector
+                with snowflake.connector.connect(**snowflake_connection_config()) as conn:
+                    cur = conn.cursor()
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM {table}")
+                        snowflake_rows = cur.fetchone()[0]
+                        snowflake_status = "ready"
+                    finally:
+                        cur.close()
+            except Exception:
+                snowflake_status = "offline"
+        else:
+            snowflake_status = "offline"
     return jsonify({
         "postgres": postgres_status,
         "postgres_rows": postgres_rows,
-        "snowflake": "ready" if snowflake_configured() else "setup_required",
+        "snowflake": snowflake_status,
+        "snowflake_rows": snowflake_rows,
         "dataset_rows": DATASET_ROWS,
     })
 
@@ -161,3 +190,4 @@ def spa_fallback(path):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
+

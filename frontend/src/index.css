@@ -116,6 +116,31 @@ h1 { margin: 10px 0 6px; color: var(--text-primary); font-size: clamp(24px, 2vw,
 @keyframes pop-in { from { opacity: 0; transform: translateY(-3px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 .dataset-strip { display: flex; min-height: 43px; align-items: center; gap: 10px; margin-bottom: 15px; padding: 0 12px; color: var(--text-tertiary); background: #0d1420; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 9px; }
+.overview-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.connection-overview-card { min-height: 178px; padding: 19px; }
+.connection-overview-heading { display: flex; align-items: center; gap: 11px; }
+.connection-overview-heading > div { flex: 1; min-width: 0; }
+.connection-overview-heading h2, .overview-dataset-card h2 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.connection-overview-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: 10px; }
+.connection-overview-count { display: flex; align-items: baseline; gap: 9px; margin-top: 25px; }
+.connection-overview-count strong { color: var(--text-primary); font-size: clamp(25px, 3vw, 34px); font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.045em; }
+.connection-overview-count span, .connection-overview-note { color: var(--text-tertiary); font-size: 10px; }
+.connection-overview-note { margin: 5px 0 0; }
+.connection-overview-note code { color: #d9d2ff; font: 500 9px 'DM Mono', monospace; }
+.overview-dataset-card { grid-column: 1 / -1; display: flex; align-items: center; gap: 13px; padding: 15px 17px; }
+.overview-dataset-card .dataset-icon { width: 34px; height: 34px; flex: 0 0 auto; }
+.overview-dataset-card > div:nth-child(2) { flex: 1; }
+.overview-dataset-card .card-eyebrow { margin-bottom: 6px; }
+.overview-dataset-card p { margin: 5px 0 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.5; }
+.overview-attribution { grid-column: 1 / -1; color: var(--text-muted); font-size: 9px; }
+.overview-attribution a { color: #9eeaf4; text-decoration-color: rgba(158,234,244,.35); text-underline-offset: 3px; }
+.overview-attribution a:hover { text-decoration-color: currentColor; }
+.failure-mode-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin-top: 7px; color: var(--text-tertiary); font-size: 8px; }
+.failure-mode-legend strong { margin-right: 4px; color: var(--text-secondary); font: 500 8px 'DM Mono', monospace; }
+.large-callout { align-items: flex-start; margin-bottom: 13px; padding: 13px 14px; font-size: 10px; }
+.large-callout strong { color: #e1dafe; font-size: 11px; }
+.large-callout p { margin: 5px 0 0; color: var(--text-tertiary); line-height: 1.65; }
+.large-callout code { color: #ddd6ff; font: 500 9px 'DM Mono', monospace; }
 .dataset-icon { display: grid; width: 24px; height: 24px; place-items: center; color: var(--cyan); background: rgba(94,227,245,.09); border-radius: 6px; }
 .dataset-strip strong { color: #dbe5f4; font: 500 10px 'DM Mono', monospace; }
 .strip-divider { width: 1px; height: 13px; background: var(--line); }
@@ -283,6 +308,9 @@ h1 { margin: 10px 0 6px; color: var(--text-primary); font-size: clamp(24px, 2vw,
   .last-run { flex: 1 0 130px; margin-left: 33px; }
   .refresh-icon { margin-left: auto; }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-status-grid { grid-template-columns: 1fr; }
+  .overview-dataset-card { grid-column: auto; align-items: flex-start; flex-wrap: wrap; }
+  .overview-dataset-card > .badge { margin-left: 46px; }
   .metric-card { min-height: 105px; }
   .metric-value { font-size: 23px; }
   .chart-grid, .lower-grid { grid-template-columns: 1fr; }
@@ -317,3 +345,4 @@ h1 { margin: 10px 0 6px; color: var(--text-primary); font-size: clamp(24px, 2vw,
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+

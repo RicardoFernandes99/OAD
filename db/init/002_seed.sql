@@ -1,37 +1,37 @@
--- Deterministic factory readings: each line contributes one reading every
--- 24 seconds over roughly one year. The same arithmetic is used by Snowflake.
-INSERT INTO production_events (event_id, event_ts, line_id, units_produced, units_defective)
-WITH generated AS (
-    SELECT
-        event_id,
-        ((event_id - 1) % 4 + 1)::INTEGER AS line_number,
-        ((event_id - 1) * 6 / 604800)::BIGINT AS week_number
-    FROM GENERATE_SERIES(1::BIGINT, 5000000::BIGINT) AS source(event_id)
-), scored AS (
-    SELECT
-        event_id,
-        line_number,
-        week_number,
-        ROUND(
-            (75 + line_number * 15 + MOD(event_id * 48271, 51))
-            * (0.88 + MOD(week_number * 7, 25) / 100.0)
-        )::INTEGER AS units_produced,
-        CASE line_number
-            WHEN 1 THEN 0.012
-            WHEN 2 THEN 0.018
-            WHEN 3 THEN 0.030
-            ELSE 0.015
-        END
-          + MOD(event_id * 40699, 900) / 100000.0
-          + MOD(week_number * 13 + line_number, 5) / 1000.0 AS defect_rate
-    FROM generated
-)
-SELECT
-    event_id,
-    TIMESTAMP '2025-01-06 06:00:00' + (event_id - 1) * INTERVAL '6 seconds',
-    'LINE-' || LPAD(line_number::TEXT, 2, '0'),
-    units_produced,
-    ROUND(units_produced * defect_rate)::INTEGER
-FROM scored;
+COPY ai4i_source
+    (udi, product_id, product_type, air_temperature_k, process_temperature_k,
+     rotational_speed_rpm, torque_nm, tool_wear_min, machine_failure,
+     twf, hdf, pwf, osf, rnf)
+FROM '/tmp/ai4i2020.csv'
+WITH (FORMAT CSV, HEADER TRUE);
 
-ANALYZE production_events;
+ANALYZE ai4i_source;
+
+-- AI4I has 10,000 source rows. Repeat each source row 500 times to create
+-- a five-million-row analytical workload. The source values are unchanged.
+INSERT INTO ai4i_readings
+    (reading_id, repetition_number, udi, product_id, product_type,
+     air_temperature_k, process_temperature_k, rotational_speed_rpm,
+     torque_nm, tool_wear_min, machine_failure, twf, hdf, pwf, osf, rnf)
+SELECT
+    ((repetition_number - 1) * 10000 + source.udi)::BIGINT,
+    repetition_number,
+    source.udi,
+    source.product_id,
+    source.product_type,
+    source.air_temperature_k,
+    source.process_temperature_k,
+    source.rotational_speed_rpm,
+    source.torque_nm,
+    source.tool_wear_min,
+    source.machine_failure,
+    source.twf,
+    source.hdf,
+    source.pwf,
+    source.osf,
+    source.rnf
+FROM GENERATE_SERIES(1, 500) AS repetitions(repetition_number)
+CROSS JOIN ai4i_source AS source;
+
+ANALYZE ai4i_readings;
+
