@@ -1,12 +1,15 @@
 import os
 import re
 import time
+from datetime import date, datetime
+from decimal import Decimal
 
 import psycopg
-from flask import Flask, render_template, request
+from flask import Flask, jsonify, request, send_from_directory
 from psycopg.rows import dict_row
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="dist/assets", static_url_path="/assets")
+DATASET_ROWS = 5_000_000
 
 QUERY = """
 SELECT DATE_TRUNC('WEEK', event_ts) AS week_start,
@@ -38,6 +41,14 @@ def snowflake_configured():
     ))
 
 
+def serialize_value(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
 def query_postgres():
     with psycopg.connect(**postgres_config(), row_factory=dict_row) as conn:
         started = time.perf_counter()
@@ -45,14 +56,18 @@ def query_postgres():
             cur.execute(QUERY.format(table="production_events"))
             rows = cur.fetchall()
         elapsed_ms = (time.perf_counter() - started) * 1000
-    return {"engine": "PostgreSQL", "elapsed_ms": elapsed_ms, "rows": rows}
+    return {
+        "engine": "PostgreSQL",
+        "elapsed_ms": elapsed_ms,
+        "rows_scanned": DATASET_ROWS,
+        "rows": [{key: serialize_value(value) for key, value in row.items()} for row in rows],
+    }
 
 
 def query_snowflake():
     if not snowflake_configured():
         raise RuntimeError("Snowflake ainda não está configurado. Preenche as variáveis SNOWFLAKE_* no ficheiro .env e reinicia a app.")
     table = os.getenv("SNOWFLAKE_TABLE", "PRODUCTION_EVENTS")
-    # Only allow simple identifiers before interpolating the configured table name.
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", table):
         raise RuntimeError("SNOWFLAKE_TABLE deve ser um identificador simples, por exemplo PRODUCTION_EVENTS.")
 
@@ -65,7 +80,7 @@ def query_snowflake():
         "warehouse": os.environ["SNOWFLAKE_WAREHOUSE"],
         "database": os.environ["SNOWFLAKE_DATABASE"],
         "schema": os.environ["SNOWFLAKE_SCHEMA"],
-        "session_parameters": {"WEEK_START": 1},
+        "session_parameters": {"WEEK_START": 1, "USE_CACHED_RESULT": False},
     }
     if os.getenv("SNOWFLAKE_ROLE"):
         config["role"] = os.environ["SNOWFLAKE_ROLE"]
@@ -80,35 +95,69 @@ def query_snowflake():
         finally:
             cur.close()
         elapsed_ms = (time.perf_counter() - started) * 1000
-    return {"engine": "Snowflake", "elapsed_ms": elapsed_ms, "rows": rows}
+    return {
+        "engine": "Snowflake",
+        "elapsed_ms": elapsed_ms,
+        "rows_scanned": DATASET_ROWS,
+        "rows": [{key: serialize_value(value) for key, value in row.items()} for row in rows],
+    }
 
 
-def run_query(engine):
+def run_engine(engine):
     try:
-        if engine == "postgres":
-            return query_postgres()
-        if engine == "snowflake":
-            return query_snowflake()
-        raise RuntimeError("Fonte de dados desconhecida.")
+        result = query_postgres() if engine == "postgres" else query_snowflake()
+        result["status"] = "ok"
+        return result
     except Exception as exc:
-        return {"engine": "PostgreSQL" if engine == "postgres" else "Snowflake", "error": str(exc)}
+        return {"engine": "PostgreSQL" if engine == "postgres" else "Snowflake", "status": "error", "error": str(exc)}
+
+
+@app.get("/api/status")
+def status():
+    try:
+        config = postgres_config()
+        config["connect_timeout"] = 3
+        with psycopg.connect(**config) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        postgres_rows = DATASET_ROWS
+        postgres_status = "online"
+    except Exception:
+        postgres_rows = 0
+        postgres_status = "offline"
+    return jsonify({
+        "postgres": postgres_status,
+        "postgres_rows": postgres_rows,
+        "snowflake": "ready" if snowflake_configured() else "setup_required",
+        "dataset_rows": DATASET_ROWS,
+    })
+
+
+@app.post("/api/benchmark")
+def benchmark():
+    payload = request.get_json(silent=True) or {}
+    source = payload.get("source", "postgres")
+    if source not in {"postgres", "snowflake", "both"}:
+        return jsonify({"error": "Fonte inválida. Escolhe PostgreSQL, Snowflake ou ambos."}), 400
+
+    engines = ["postgres", "snowflake"] if source == "both" else [source]
+    # Keep execution sequential: concurrent scans would make the comparison noisy.
+    results = [run_engine(engine) for engine in engines]
+    return jsonify({"source": source, "dataset_rows": DATASET_ROWS, "results": results})
 
 
 @app.get("/")
 def index():
-    return render_template("index.html", results=None, selection="both", snowflake_ready=snowflake_configured())
+    return send_from_directory("dist", "index.html")
 
 
-@app.post("/compare")
-def compare():
-    selection = request.form.get("source", "both")
-    engines = ["postgres", "snowflake"] if selection == "both" else [selection]
-    # Sequential execution makes the demonstration easier to interpret and avoids
-    # measuring competition for resources created by this app.
-    results = [run_query(engine) for engine in engines]
-    return render_template("index.html", results=results, selection=selection, snowflake_ready=snowflake_configured())
+@app.get("/<path:path>")
+def spa_fallback(path):
+    if path.startswith("api/") or path.startswith("assets/"):
+        return jsonify({"error": "Não encontrado."}), 404
+    return send_from_directory("dist", "index.html")
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
-

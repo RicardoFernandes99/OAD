@@ -1,37 +1,34 @@
 # OAD — PostgreSQL vs Snowflake
 
-A small Dockerized web app for comparing the same weekly production and defect-rate query on PostgreSQL and Snowflake. It is a classroom demonstration, not a general benchmark: timings depend on warehouse size, data volume, cache state, network, and configuration.
+An industrial analytics comparison app. A React dashboard runs the same weekly production and defect-rate aggregation against a local PostgreSQL container or Snowflake.
 
-## Run PostgreSQL locally
+## Run locally
 
 1. Copy `.env.example` to `.env`.
 2. Run `docker compose up --build`.
 3. Open <http://localhost:8000>.
 
-PostgreSQL starts in its own container. On its first start, the SQL files in `db/init/` create the schema and load `data/production_events.csv`. To reseed after changing the CSV, run `docker compose down -v` and then `docker compose up --build` (this deletes the local PostgreSQL volume).
+The first PostgreSQL start creates the schema and generates five million deterministic production readings. The React UI shows weekly production and defect-rate trends, engine status, query duration, and a paged result table. Snowflake can be left unconfigured while using PostgreSQL.
 
 ## Add Snowflake
 
-1. In `.env`, fill in the Snowflake connection fields. Credentials stay local and `.env` is ignored by Git.
-2. Run `snowflake/001_setup.sql` in a Snowflake worksheet.
-3. In Snowsight, use **Load Data** to load `data/production_events.csv` into `OAD_DEMO.PUBLIC.PRODUCTION_EVENTS`, matching the column order and types in the setup SQL. Choose comma delimiter, header row enabled, and timestamp format `YYYY-MM-DD HH24:MI:SS`.
-4. Select Snowflake in the app.
+1. Fill the `SNOWFLAKE_*` variables in `.env`.
+2. Run `snowflake/001_setup.sql` in a Snowflake worksheet. It creates the table and generates the same five million rows using the matching deterministic formula in `db/init/002_seed.sql`.
+3. Select Snowflake or both engines in the dashboard.
 
-The same CSV is used for both engines. The included `scripts/generate_mock_data.py` regenerates a deterministic 10,000-row fixture.
+Use a small virtual warehouse and configure auto-suspend. Snowflake result caching is disabled for the demonstration query. The timer starts after connecting and includes query execution and result fetching. PostgreSQL and Snowflake run sequentially. This is a classroom demonstration, not a controlled benchmark: hardware, caching, warehouse size, network and concurrent work affect the results, and neither system is guaranteed to be faster.
 
-## What the app measures
-
-It aggregates units produced and defect rate per week and production line. The timer covers query execution and fetching the result rows; it excludes opening the database connection. PostgreSQL and Snowflake run sequentially when comparing both. This makes the demonstration easy to explain, but it is not a controlled performance study. Snowflake timings also include the configured virtual warehouse behavior and may reflect cache effects.
-
-## Files
+## Dataset and SQL
 
 - `db/init/001_schema.sql`: PostgreSQL schema migration.
-- `db/init/002_seed.sql`: loads the CSV fixture into PostgreSQL on first initialization.
-- `snowflake/001_setup.sql`: creates the Snowflake database, schema, and table.
+- `db/init/002_seed.sql`: generates five million readings at first database initialization.
+- `snowflake/001_setup.sql`: Snowflake schema, table and matching data generation.
 - `sql/benchmark.sql`: reference aggregation query.
-- `data/production_events.csv`: shared import fixture.
+
+The generated data covers four factory lines over roughly one year. Each line contributes a reading every 24 seconds. Event IDs drive the same timestamps, line assignment, production counts and defect-rate variation in each database; line 03 has a higher defect rate to make quality comparisons visible.
+
+If you change the seed SQL or row count, recreate the local demo database volume so init scripts run again: `docker compose down -v`, then `docker compose up --build`. This deletes the local PostgreSQL demo data.
 
 ## Configuration
 
-See `.env.example`. Use a dedicated Snowflake demo user and a small warehouse. Set auto-suspend in Snowflake to control idle compute costs. Do not commit `.env` or real credentials.
-
+See `.env.example`. `.env` is ignored by Git. Never commit real credentials.
